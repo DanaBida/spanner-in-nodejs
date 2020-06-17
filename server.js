@@ -1,5 +1,3 @@
-// APIs: select, insert, update, delete
-
 const express = require('express');
 const PORT = 3001;
 const app = express();
@@ -12,32 +10,30 @@ app.listen(PORT, () => {
 
 const { Spanner } = require('@google-cloud/spanner');
 
+//we need to define the emulator host before the creation of the Spanner project!
+process.env.SPANNER_EMULATOR_HOST = 'localhost:9010';
+
 const projectId = 'spannerproject';
-const config = {
+const spanner = new Spanner({ projectId: projectId });
+
+const instanceId = 'apollo-test',
+  databaseId = 'apollo-db-test';
+let instance, database;
+
+const instanceConfig = {
   config: 'emulator-config',
   nodes: 1,
 };
 
-process.env.SPANNER_EMULATOR_HOST = 'localhost:9010';
-
-const spanner = new Spanner({ projectId: projectId });
-const instanceId = 'apollo-test',
-  databaseId = 'apollo-db-test';
-let instance, database;
-// const instance = spanner.instance(instanceId);
-// const database = instance.database(databaseId);
-// console.log('database: ', database);
-// console.log('instance: ', instance);
-
 const createSpannerInstance = async () => {
-  console.log('createSpannerInstance');
+  console.log('create spanner instance');
   try {
-    const [instance1, operation] = await spanner.createInstance(instanceId, config);
+    const [createdInstance, operation] = await spanner.createInstance(instanceId, instanceConfig);
 
-    console.log(`Waiting for operation on ${instance1.id} to complete...`);
-    await operation.promise();
+    console.log(`Waiting for operation on ${createdInstance.id} to complete...`);
+    await operation.promise(); //await complete event
 
-    instance = instance1;
+    instance = createdInstance;
     console.log('Instance created successfully.');
   } catch (err) {
     console.error('ERROR:', err);
@@ -47,12 +43,12 @@ const createSpannerInstance = async () => {
 const createSpannerDatabase = async () => {
   console.log('create spanner db');
   try {
-    const [database1, operation] = await instance.createDatabase(databaseId);
+    const [createdDatabase, operation] = await instance.createDatabase(databaseId);
 
-    console.log(`Waiting for operation on ${database1.id} to complete...`);
-    await operation.promise();
+    console.log(`Waiting for operation on ${createdDatabase.id} to complete...`);
+    await operation.promise(); //await complete event
 
-    database = database1;
+    database = createdDatabase;
     console.log(`Created database ${databaseId} on instance ${instanceId}.`);
   } catch (err) {
     console.error('ERROR:', err);
@@ -72,91 +68,40 @@ const createSpannerTable = async () => {
 
     console.log(`Waiting for operation on ${database.id} to complete...`);
     await operation.promise();
+
     console.log(`table created successfully`);
   } catch (err) {
     console.error('ERROR:', err);
   }
 };
 
-//TODO: try to run without transaction
+//data manipulation language (DML) is a computer programming language used for inserting, deleting, and updating data in a database.
+//DML statements may not be performed in single-use transactions, to avoid replay.
+// insert data using DML in a read-write transaction - use runUpdate() method to execute a DML statement.
 const insertSpannerTable = async () => {
+  // add check of existence
   console.log('insert to spanner db table - use transaction');
-  //TODO: check if could use await
   database.runTransaction(async (err, transaction) => {
     if (err) {
-      console.error(err);
-      //TODO: think about retry
-      database.close();
+      console.error('ERROR:', err);
       return;
     }
     try {
-      const [rowCount] = await transaction.runUpdate({
+      const query = {
         sql: `INSERT Singers (SingerId, FirstName, LastName) VALUES
         (12, 'Melissa', 'Garcia'),
         (13, 'Russell', 'Morales'),
         (14, 'Jacqueline', 'Long'),
         (15, 'Dylan', 'Shaw')`,
-      });
-      // const [rowCount] = await transaction.runUpdate(query);
-      console.log(`${rowCount} records inserted.`);
+      };
+      const [rowCount] = await transaction.runUpdate(query);
       await transaction.commit();
+      console.log(`${rowCount} records inserted.`);
     } catch (err) {
       console.error('ERROR:', err);
-      database.close();
+      //TODO: think about retry
     }
-    // finally {
-    // Close the database when finished.
-    // database.close();
-    // }
   });
-};
-//DML statements may not be performed in single-use transactions, to avoid replay.
-const insertSpannerTableWithoutTransaction = async () => {
-  console.log('insert to spanner db table - without transaction');
-
-  try {
-    const query = {
-      sql: `INSERT Singers (SingerId, FirstName, LastName) VALUES
-      (12, 'Melissa', 'Garcia'),
-      (13, 'Russell', 'Morales'),
-      (14, 'Jacqueline', 'Long'),
-      (15, 'Dylan', 'Shaw')`,
-    };
-    const [rows] = await database.run(query);
-    //TODO: check rows type - By default rows are an Array of values in the form of objects containing name and value properties.
-    //If you prefer plain objects, you can use the {@link Row#toJSON} method.
-    //NOTE: If you have duplicate field names only the last field will be present.
-    rows.forEach((row) => {
-      const json = row.toJSON(); //return plain objects
-      console.log(`SingerId: ${json.SingerId}, FirstName: ${json.FirstName}, LastName: ${json.LastName}`);
-    });
-  } catch (err) {
-    console.error('ERROR:', err);
-    database.close();
-  }
-};
-
-const selectSpannerTable = async () => {
-  console.log('select from spanner db table');
-  const query = {
-    sql: 'SELECT * FROM Singers',
-  };
-
-  // Queries rows from the Albums table
-  try {
-    const [rows] = await database.run(query);
-    //TODO: check rows type
-    rows.forEach((row) => {
-      const json = row.toJSON(); //return in string with JSON formate
-      console.log(`SingerId: ${json.SingerId}, FirstName: ${json.FirstName}, LastName: ${json.LastName}`);
-    });
-  } catch (err) {
-    console.error('ERROR:', err);
-    database.close();
-  } finally {
-    // Close the database when finished.
-    // await database.close();
-  }
 };
 
 const updateSpannerTable = async () => {
@@ -168,8 +113,7 @@ const updateSpannerTable = async () => {
 
   database.runTransaction(async (err, transaction) => {
     if (err) {
-      console.error(err);
-      database.close();
+      console.error('ERROR:', err);
       return;
     }
     try {
@@ -178,12 +122,7 @@ const updateSpannerTable = async () => {
       await transaction.commit();
     } catch (err) {
       console.error('ERROR:', err);
-      database.close();
     }
-    // finally {
-    // Close the database when finished.
-    // database.close();
-    // }
   });
 };
 
@@ -197,7 +136,6 @@ const deleteSpannerTable = async () => {
   database.runTransaction(async (err, transaction) => {
     if (err) {
       console.error(err);
-      database.close();
       return;
     }
     try {
@@ -206,13 +144,39 @@ const deleteSpannerTable = async () => {
       await transaction.commit();
     } catch (err) {
       console.error('ERROR:', err);
-      database.close();
     }
-    // finally {
-    // Close the database when finished.
-    // database.close();
-    // }
   });
+};
+
+//Use database.run() to run SQL query.
+const selectSpannerTable = async () => {
+  console.log('select from spanner db table');
+  /*
+    // The SQL query string can contain parameter placeholders. A parameter
+     * // placeholder consists of '@' followed by the parameter name.
+     * //-
+     * const query = {
+     *   sql: 'SELECT * FROM Singers WHERE name = @name',
+     *   params: {
+     *     name: 'Eddie Wilson'
+     *   }
+     */
+  const query = {
+    sql: 'SELECT * FROM Singers',
+  };
+
+  try {
+    //rows type - By default rows are an Array of values in the form of objects containing name and value properties.
+    //If you prefer plain objects, you can use the {@link Row#toJSON} method.
+    //NOTE: If you have duplicate field names only the last field will be present.
+    const [rows] = await database.run(query);
+    rows.forEach((row) => {
+      const json = row.toJSON(); //return in string with JSON formate
+      console.log(`SingerId: ${json.SingerId}, FirstName: ${json.FirstName}, LastName: ${json.LastName}`);
+    });
+  } catch (err) {
+    console.error('ERROR:', err);
+  }
 };
 
 app.get('/create-instance', async (req, res) => {
