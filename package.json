@@ -1,0 +1,17 @@
+{
+  "name": "knex-poc",
+  "version": "1.0.0",
+  "description": "this is a try of using knex with spanner",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "dana bida",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/spanner": "^5.1.0",
+    "express": "^4.17.1",
+    "knex": "^0.21.1",
+    "mysql": "^2.18.1"
+  }
+}
